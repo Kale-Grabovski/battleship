@@ -9,7 +9,30 @@ use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::{Canvas, Texture, TextureCreator};
 use sdl2::video::{Window, WindowContext};
+use std::error;
+use std::fmt;
 use std::time::Duration;
+
+type Result<T> = std::result::Result<T, BattleError>;
+
+#[derive(Debug, Clone)]
+struct BattleError;
+
+impl fmt::Display for BattleError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "an error occurred")
+    }
+}
+
+impl error::Error for BattleError {
+    fn description(&self) -> &str {
+        "an error occurred"
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        None
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum CellState {
@@ -154,7 +177,7 @@ impl<'a, 'b> Game<'a, 'b> {
         }
     }
 
-    pub fn draw(&mut self) {
+    pub fn draw(&mut self) -> Result<()> {
         if self.state == State::Enemy {
             self.enemy_turn();
         }
@@ -162,30 +185,34 @@ impl<'a, 'b> Game<'a, 'b> {
         self.canvas.set_draw_color(Color::RGB(0, 0, 0));
         self.canvas.clear();
 
-        let me = self.draw_field(false);
-        let enemy = self.draw_field(true);
+        let me = self.draw_field(false)?;
+        let enemy = self.draw_field(true)?;
 
-        self.canvas
-            .copy(
-                &me,
-                None,
-                Rect::new(self.xy[0], self.xy[1], self.field_size, self.field_size),
-            )
-            .unwrap();
-        self.canvas
-            .copy(
-                &enemy,
-                None,
-                Rect::new(
-                    self.xy[0] + (self.field_size as i32) + self.fields_space_px,
-                    self.xy[1],
-                    self.field_size,
-                    self.field_size,
-                ),
-            )
-            .unwrap();
+        match self.canvas.copy(
+            &me,
+            None,
+            Rect::new(self.xy[0], self.xy[1], self.field_size, self.field_size),
+        ) {
+            Ok(_) => {}
+            Err(_) => return Err(BattleError),
+        };
+        match self.canvas.copy(
+            &enemy,
+            None,
+            Rect::new(
+                self.xy[0] + (self.field_size as i32) + self.fields_space_px,
+                self.xy[1],
+                self.field_size,
+                self.field_size,
+            ),
+        ) {
+            Ok(_) => {}
+            Err(_) => return Err(BattleError),
+        };
 
         self.canvas.present();
+
+        Ok(())
     }
 
     fn enemy_turn(&mut self) {
@@ -264,6 +291,16 @@ impl<'a, 'b> Game<'a, 'b> {
                     continue;
                 }
 
+                // Right border
+                if (u + 1) % 10 == 0 && k % 10 == 0 {
+                    continue;
+                }
+
+                // Left border
+                if u % 10 == 0 && (k + 1) % 10 == 0 {
+                    continue;
+                }
+
                 match cells[*k as usize].state {
                     CellState::Injured | CellState::Dead => {}
                     _ => cells[*k as usize].state = CellState::Miss,
@@ -297,12 +334,14 @@ impl<'a, 'b> Game<'a, 'b> {
         }
     }
 
-    fn draw_field(&mut self, is_enemy: bool) -> Texture<'b> {
-        let field_size = &self.field_size;
-        let mut t: Texture = self
+    fn draw_field(&mut self, is_enemy: bool) -> Result<Texture<'b>> {
+        let mut t = match self
             .tc
             .create_texture_target(None, self.field_size, self.field_size)
-            .unwrap();
+        {
+            Ok(m) => m,
+            Err(_) => return Err(BattleError),
+        };
 
         let cell_size = &self.cell_size;
         let cells = match is_enemy {
@@ -310,14 +349,14 @@ impl<'a, 'b> Game<'a, 'b> {
             false => &self.me,
         };
 
-        self.canvas.with_texture_canvas(&mut t, |tc| {
+        let c = self.canvas.with_texture_canvas(&mut t, |tc| {
             tc.set_draw_color(Color::RGB(0, 0, 0));
             tc.clear();
 
             tc.set_draw_color(Color::RGB(99, 159, 255));
             for row in 0..11 {
-                tc.fill_rect(Rect::new(0, (row * cell_size) as i32, cell_size * 10, 1));
-                tc.fill_rect(Rect::new((row * cell_size) as i32, 0, 1, cell_size * 10));
+                let _ = tc.fill_rect(Rect::new(0, (row * cell_size) as i32, cell_size * 10, 1));
+                let _ = tc.fill_rect(Rect::new((row * cell_size) as i32, 0, 1, cell_size * 10));
             }
 
             for (i, cell) in cells.iter().enumerate() {
@@ -327,7 +366,7 @@ impl<'a, 'b> Game<'a, 'b> {
                 match cell.state {
                     CellState::Miss => {
                         tc.set_draw_color(Color::RGB(255, 255, 255));
-                        tc.draw_rect(Rect::new(
+                        let _ = tc.draw_rect(Rect::new(
                             x + (cell_size / 2) as i32,
                             y + (cell_size / 2) as i32,
                             2,
@@ -336,22 +375,25 @@ impl<'a, 'b> Game<'a, 'b> {
                     }
                     CellState::Alive if !is_enemy => {
                         tc.set_draw_color(Color::RGB(225, 225, 225));
-                        tc.fill_rect(Rect::new(x, y, cell_size - 1, cell_size - 1));
+                        let _ = tc.fill_rect(Rect::new(x, y, cell_size - 1, cell_size - 1));
                     }
                     CellState::Injured => {
-                        tc.set_draw_color(Color::RGB(0, 155, 155));
-                        tc.fill_rect(Rect::new(x, y, cell_size - 1, cell_size - 1));
+                        tc.set_draw_color(Color::RGB(215, 215, 0));
+                        let _ = tc.fill_rect(Rect::new(x, y, cell_size - 1, cell_size - 1));
                     }
                     CellState::Dead => {
-                        tc.set_draw_color(Color::RGB(215, 215, 0));
-                        tc.fill_rect(Rect::new(x, y, cell_size - 1, cell_size - 1));
+                        tc.set_draw_color(Color::RGB(215, 45, 0));
+                        let _ = tc.fill_rect(Rect::new(x, y, cell_size - 1, cell_size - 1));
                     }
                     _ => {}
                 }
             }
         });
 
-        t
+        return match c {
+            Ok(_) => Ok(t),
+            Err(_) => Err(BattleError),
+        };
     }
 }
 
@@ -399,7 +441,10 @@ fn main() {
             _ => {}
         }
 
-        game.draw();
+        match game.draw() {
+            Ok(_) => {}
+            Err(e) => panic!(e),
+        };
 
         ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }
