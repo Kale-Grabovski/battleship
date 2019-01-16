@@ -58,6 +58,24 @@ impl Cell {
     }
 }
 
+struct Field {
+    cells: Vec<Cell>,
+    cell_size: u32,
+    field_size: u32,
+    is_enemy: bool,
+}
+
+impl Field {
+    fn new(is_enemy: bool, cell_size: u32, field_size: u32) -> Field {
+        Field {
+            is_enemy,
+            cell_size,
+            field_size,
+            cells: vec![Cell::new(); 100],
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq)]
 enum State {
     Me,
